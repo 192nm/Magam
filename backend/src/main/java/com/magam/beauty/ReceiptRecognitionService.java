@@ -64,7 +64,7 @@ public class ReceiptRecognitionService {
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body), StandardCharsets.UTF_8)).build();
             var response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() == 429) throw new ApiException(429, "인식 서비스 사용량을 초과했습니다. 잠시 후 다시 시도해 주세요.");
+            if (response.statusCode() == 429) throw rateLimitError(response.body());
             if (response.statusCode() == 401 || response.statusCode() == 403) throw new ApiException(503, "영수증 인식 연결 설정을 확인해 주세요.");
             if (response.statusCode() != 200) throw new ApiException(502, "인식 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
             return parseResponse(response.body());
@@ -76,6 +76,20 @@ public class ReceiptRecognitionService {
         } catch (IOException e) {
             throw new ApiException(502, "인식 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.");
         }
+    }
+
+    ApiException rateLimitError(String body) {
+        String code = "";
+        try { code = mapper.readTree(body).path("error").path("code").asText(); }
+        catch (RuntimeException ignored) { /* Keep the response safe if the upstream error is malformed. */ }
+        String message = switch (code) {
+            case "credit_balance_exhausted" -> "OpenAI API 크레딧이 소진되었습니다. API 결제 페이지에서 잔액을 확인해 주세요.";
+            case "organization_spend_limit_exceeded" -> "OpenAI 조직의 월 지출 한도에 도달했습니다. 조직 한도를 확인해 주세요.";
+            case "project_spend_limit_exceeded" -> "OpenAI 프로젝트의 월 지출 한도에 도달했습니다. 프로젝트 한도를 확인해 주세요.";
+            case "organization_usage_limit_exceeded" -> "OpenAI 조직의 API 사용 한도에 도달했습니다. 조직 한도를 확인해 주세요.";
+            default -> "인식 서비스 요청 제한에 걸렸습니다. 잠시 후 다시 시도해 주세요.";
+        };
+        return new ApiException(429, message);
     }
 
     Extraction parseResponse(String body) {

@@ -32,4 +32,10 @@ class ReceiptRecognitionServiceTest {
         assertThatThrownBy(() -> service.parseResponse("{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"refusal\"}]}]}")).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> service.parseResponse(response("not json"))).isInstanceOf(ApiException.class);
     }
+
+    @Test void distinguishesExhaustedCreditsFromTemporaryRateLimits() {
+        assertThat(service.rateLimitError("{\"error\":{\"code\":\"credit_balance_exhausted\"}}").getMessage()).contains("크레딧이 소진");
+        assertThat(service.rateLimitError("{\"error\":{\"code\":\"project_spend_limit_exceeded\"}}").getMessage()).contains("프로젝트의 월 지출 한도");
+        assertThat(service.rateLimitError("{\"error\":{\"code\":\"rate_limit_exceeded\"}}").getMessage()).contains("잠시 후 다시");
+    }
 }
