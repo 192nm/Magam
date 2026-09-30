@@ -1,0 +1,38 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.1'
+}
+
+group = 'com.magam.beauty'
+version = '1.0.0'
+
+// Keep CLI runs independent from IDE output when Windows holds directory handles open.
+layout.buildDirectory = layout.projectDirectory.dir(providers.gradleProperty('magamBuildDir').orElse('build').get())
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.1')
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.named('test') { useJUnitPlatform() }
+// Bundle the UI directly into the JAR so bootRun never locks frontend build files on Windows.
+tasks.named('bootJar') {
+    archiveFileName = 'magam-beauty.jar'
+    from('../dist') { into 'BOOT-INF/classes/static' }
+    doFirst {
+        if (!file('../dist/index.html').exists()) {
+            throw new GradleException('Build the frontend first: npm run build (from the project root).')
+        }
+    }
+}

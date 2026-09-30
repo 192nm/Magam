@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.env
+.env.*
+.gradle
+backend/.gradle
+backend/build
+.logs
+test-results
+playwright-report
+.tools

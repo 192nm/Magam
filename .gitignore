@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-server/
+.env
+.env.*
+!.env.example
+.logs/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.gradle/
+backend/build/
+backend/build-*/
+backend/.gradle/
+.tools/
+.idea/
+*.iml

@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entries", "warnings"],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "service", "amount", "needsReview"],
+        "properties": {
+          "name": { "type": "string" },
+          "service": { "type": "string" },
+          "amount": { "type": ["integer", "null"] },
+          "needsReview": { "type": "boolean" }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}
