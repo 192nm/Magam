@@ -8,8 +8,14 @@ import java.net.http.*;
 import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.*;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"magam.openai.api-key=", "magam.access-key=test-key"})
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"magam.openai.api-key=", "magam.access-key=test-key", "magam.database.enabled=false"})
 class ApiIntegrationTest {
+    @Test void protectsRecordsAndReportsMissingDatabase() throws Exception {
+        assertThat(send(request("/api/closing-records").GET().build()).statusCode()).isEqualTo(401);
+        assertThat(send(request("/api/closing-records").header("X-Access-Key", "test-key").GET().build()).statusCode()).isEqualTo(503);
+        assertThat(send(request("/api/closing-records/not-a-uuid").header("X-Access-Key", "test-key").header("X-Magam-Client", "1").DELETE().build()).statusCode()).isEqualTo(400);
+        assertThat(send(request("/api/closing-records/00000000-0000-0000-0000-000000000001").header("X-Access-Key", "test-key").DELETE().build()).statusCode()).isEqualTo(403);
+    }
     @LocalServerPort int port;
     private final HttpClient client = HttpClient.newHttpClient();
     private HttpRequest.Builder request(String path) { return HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)); }

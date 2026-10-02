@@ -37,6 +37,8 @@ export interface Health {
   status: string;
   recognitionAvailable: boolean;
   accessKeyRequired: boolean;
+  databaseEnabled?: boolean;
+  databaseAvailable?: boolean;
 }
 export interface Extraction {
   entries: Omit<Entry, 'id' | 'source'>[];
@@ -46,4 +48,15 @@ export interface Report {
   text: string;
   total: number;
   count: number;
+}
+export interface SaveRecordRequest {
+  id: string;
+  sample: boolean;
+  report: {
+    date: string;
+    salonName: string;
+    entries: Omit<Entry, 'id' | 'source'>[];
+    includeService: boolean;
+    compact: boolean;
+  };
 }

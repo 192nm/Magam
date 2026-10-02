@@ -2596,3 +2596,19 @@ h1 > span {
     scroll-behavior: auto !important;
   }
 }
+.history-storage-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.history-storage-controls [aria-pressed='true'] {
+  outline: 2px solid #477a64;
+  outline-offset: 2px;
+}
+.history-storage-status {
+  padding: 12px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}

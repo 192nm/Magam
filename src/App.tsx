@@ -39,7 +39,16 @@ import {
   validDate,
   validEntry,
 } from './lib/domain';
-import type { Entry, Health, Report, SavedReport, Settings, Store, Tab } from './lib/types';
+import type {
+  Entry,
+  Health,
+  Report,
+  SavedReport,
+  SaveRecordRequest,
+  Settings,
+  Store,
+  Tab,
+} from './lib/types';
 
 type UploadItem = {
   id: string;
@@ -88,8 +97,19 @@ export default function App() {
   const [viewImage, setViewImage] = useState<UploadItem | null>(null);
   const [generatedText, setGeneratedText] = useState('');
   const [historyQuery, setHistoryQuery] = useState('');
+  const [databaseHistory, setDatabaseHistory] = useState<SavedReport[]>([]);
+  const [historySource, setHistorySource] = useState<'browser' | 'database'>('browser');
+  const [historyError, setHistoryError] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [savePayload, setSavePayload] = useState<SaveRecordRequest | null>(null);
+  const databaseMode = useRef(false);
 
-  const { draft, settings, history } = store;
+  const { draft, settings } = store;
+  const history = historySource === 'database' ? databaseHistory : store.history;
   const total = totalAmount(draft.entries);
   const reviewCount = draft.entries.filter(
     (entry) => !validEntry(entry) || entry.needsReview,
@@ -111,7 +131,13 @@ export default function App() {
     let active = true;
     getHealth()
       .then((value) => {
-        if (active) setHealth(value);
+        if (active) {
+          setHealth(value);
+          if (value.databaseEnabled) {
+            databaseMode.current = true;
+            setHistorySource('database');
+          }
+        }
       })
       .catch(() => {})
       .finally(() => {
@@ -121,6 +147,30 @@ export default function App() {
       active = false;
     };
   }, []);
+  useEffect(() => {
+    if (historySource !== 'database' || tab !== 'history') return;
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryError('');
+    setDatabaseHistory([]);
+    request<SavedReport[]>('/closing-records?limit=100', {
+      headers: { 'X-Access-Key': accessKey },
+    })
+      .then((records) => {
+        if (!active) return;
+        setDatabaseHistory(records);
+        setHistoryHasMore(records.length === 100);
+      })
+      .catch((error: Error) => {
+        if (active) setHistoryError(error.message);
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [historySource, tab, accessKey, historyRefresh]);
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
@@ -285,27 +335,38 @@ export default function App() {
     if (!ready || busy) return;
     setGenerating(true);
     try {
+      const payload: SaveRecordRequest = {
+        id: crypto.randomUUID
+          ? crypto.randomUUID()
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+              const n = crypto.getRandomValues(new Uint8Array(1))[0] & 15;
+              return (c === 'x' ? n : (n & 3) | 8).toString(16);
+            }),
+        sample: hasSample,
+        report: {
+          date: draft.date,
+          salonName: settings.salonName + (hasSample ? ' · 샘플' : ''),
+          entries: draft.entries.map(({ name, service, amount, needsReview }) => ({
+            name,
+            service,
+            amount,
+            needsReview,
+          })),
+          includeService: settings.includeService,
+          compact: settings.compact,
+        },
+      };
       let text = buildReport(draft, settings);
       if (health) {
         const result = await request<Report>('/reports/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date: draft.date,
-            salonName: settings.salonName + (hasSample ? ' · 샘플' : ''),
-            entries: draft.entries.map(({ name, service, amount, needsReview }) => ({
-              name,
-              service,
-              amount,
-              needsReview,
-            })),
-            includeService: settings.includeService,
-            compact: settings.compact,
-          }),
+          body: JSON.stringify(payload.report),
         });
         text = result.text;
       }
       setGeneratedText(text);
+      setSavePayload(payload);
       setModal('report');
     } catch (error) {
       notify(error instanceof Error ? error.message : '마감 문구를 만들지 못했습니다.', true);
@@ -313,7 +374,32 @@ export default function App() {
       setGenerating(false);
     }
   }
-  function saveReport() {
+  async function saveReport() {
+    if (saving || !savePayload) return;
+    if (health?.databaseEnabled || databaseMode.current) {
+      databaseMode.current = true;
+      setSaving(true);
+      try {
+        await request<SavedReport>('/closing-records', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Access-Key': accessKey },
+          body: JSON.stringify(savePayload),
+        });
+        setHistorySource('database');
+        setHistoryRefresh((value) => value + 1);
+        notify('마감 기록을 DB에 저장했어요.');
+      } catch (error) {
+        notify((error as Error).message, true);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+    // Do not silently switch to browser storage when the server cannot be checked.
+    if (!health) {
+      notify('서버 연결을 확인한 후 다시 저장해 주세요.', true);
+      return;
+    }
     if (history.some((report) => report.text === generatedText)) {
       notify('이미 저장된 마감 문구입니다.');
       return;
@@ -329,6 +415,51 @@ export default function App() {
     };
     setStore((value) => ({ ...value, history: [report, ...value.history].slice(0, 100) }));
     notify('마감 기록을 이 브라우저에 저장했어요.');
+  }
+  async function deleteViewedRecord() {
+    if (!viewing || deleting) return;
+    setDeleting(true);
+    try {
+      if (historySource === 'database') {
+        await request(`/closing-records/${viewing.id}`, {
+          method: 'DELETE',
+          headers: { 'X-Access-Key': accessKey },
+        });
+        setHistoryRefresh((value) => value + 1);
+      } else {
+        setStore((value) => ({
+          ...value,
+          history: value.history.filter((report) => report.id !== viewing.id),
+        }));
+      }
+      setViewing(null);
+      notify('마감 기록을 삭제했어요.');
+    } catch (error) {
+      notify((error as Error).message, true);
+    } finally {
+      setDeleting(false);
+    }
+  }
+  async function loadMoreHistory() {
+    setHistoryLoading(true);
+    setHistoryError('');
+    try {
+      const records = await request<SavedReport[]>(
+        `/closing-records?limit=100&offset=${databaseHistory.length}`,
+        {
+          headers: { 'X-Access-Key': accessKey },
+        },
+      );
+      setDatabaseHistory((value) => [
+        ...value,
+        ...records.filter((record) => !value.some((item) => item.id === record.id)),
+      ]);
+      setHistoryHasMore(records.length === 100);
+    } catch (error) {
+      setHistoryError((error as Error).message);
+    } finally {
+      setHistoryLoading(false);
+    }
   }
   async function copy(text: string) {
     try {
@@ -971,6 +1102,46 @@ export default function App() {
                 </button>
               </section>
               <section className="card history-card">
+                <div className="history-storage-controls">
+                  <button
+                    className="button secondary"
+                    aria-pressed={historySource === 'database'}
+                    onClick={() => setHistorySource('database')}
+                  >
+                    DB 기록
+                  </button>
+                  <button
+                    className="button secondary"
+                    aria-pressed={historySource === 'browser'}
+                    onClick={() => setHistorySource('browser')}
+                  >
+                    이 브라우저 기록 ({store.history.length})
+                  </button>
+                  {historySource === 'database' && (
+                    <button
+                      className="text-button"
+                      disabled={historyLoading}
+                      onClick={() => setHistoryRefresh((value) => value + 1)}
+                    >
+                      새로고침
+                    </button>
+                  )}
+                </div>
+                {historySource === 'database' && (
+                  <div className="history-storage-status" role="status">
+                    {historyLoading
+                      ? 'DB 기록을 불러오는 중이에요…'
+                      : historyError ||
+                        (!health?.databaseEnabled
+                          ? 'DB 연결 설정을 먼저 완료해 주세요.'
+                          : 'DB에 저장한 기록이에요. 검색은 현재 불러온 기록에서 진행해요.')}
+                    {historyError && (
+                      <button className="text-button" onClick={() => navigate('settings')}>
+                        연결 설정 확인
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="card-heading">
                   <div className="section-title">
                     <History size={20} />
@@ -986,7 +1157,7 @@ export default function App() {
                     onChange={(event) => setHistoryQuery(event.target.value)}
                   />
                 </div>
-                {history.length === 0 ? (
+                {history.length === 0 && !historyLoading && !historyError ? (
                   <div className="large-empty">
                     <div className="empty-icon">
                       <History size={28} />
@@ -1039,9 +1210,20 @@ export default function App() {
                   </div>
                 )}
                 <div className="history-footer">
-                  <ShieldCheck size={14} />이 브라우저에 최근 100개 기록을 보관해요. 기기 간에는
-                  공유되지 않아요.
+                  <ShieldCheck size={14} />
+                  {historySource === 'database'
+                    ? 'DB 기록은 같은 서버와 접속 키를 사용하는 기기에서 조회할 수 있어요.'
+                    : '이 브라우저에 최근 100개 기록을 보관해요. 기기 간에는 공유되지 않아요.'}
                 </div>
+                {historySource === 'database' && historyHasMore && (
+                  <button
+                    className="button secondary"
+                    disabled={historyLoading}
+                    onClick={() => void loadMoreHistory()}
+                  >
+                    이전 기록 더 보기
+                  </button>
+                )}
               </section>
             </>
           )}
@@ -1168,6 +1350,7 @@ export default function App() {
                         void getHealth()
                           .then((value) => {
                             setHealth(value);
+                            if (value.databaseEnabled) databaseMode.current = true;
                             notify('연결 상태를 확인했어요.');
                           })
                           .catch(() => {
@@ -1187,15 +1370,24 @@ export default function App() {
                     </div>
                     <p className="settings-description">
                       사진은 인식을 위해 OpenAI로 전송되며, 이 서비스의 서버에 영구 저장하지 않아요.
-                      내역과 마감 기록은 현재 브라우저에 보관돼요.
+                      작성 중인 내역은 현재 브라우저에 보관돼요. DB 연결 후 저장하는 마감 기록은
+                      서버에 보관돼요.
+                    </p>
+                    <p className="settings-description" role="status">
+                      {!health
+                        ? '서버 연결 상태를 먼저 확인해 주세요.'
+                        : health.databaseEnabled
+                          ? health.databaseAvailable
+                            ? 'DB 연결 완료 · 기록 저장 시 DB에 보관합니다.'
+                            : 'DB 연결 오류 · 연결 복구 후 다시 저장해 주세요.'
+                          : 'DB 연결 대기 · 현재는 이 브라우저에 기록을 저장합니다.'}
                     </p>
                     <button
                       className="text-button danger"
-                      disabled={history.length === 0}
+                      disabled={store.history.length === 0}
                       onClick={() => setModal('clear-history')}
                     >
-                      <Trash2 size={15} />
-                      저장된 마감 기록 전체 삭제
+                      <Trash2 size={15} />이 브라우저 기록 전체 삭제
                     </button>
                   </section>
                 </div>
@@ -1245,11 +1437,19 @@ export default function App() {
             aria-label="공유할 마감 문구"
           />
           {reportActions(generatedText, draft.date)}
-          <button className="button save-button" onClick={saveReport}>
+          <button
+            className="button save-button"
+            disabled={saving}
+            onClick={() => void saveReport()}
+          >
             <History size={17} />
-            기록 저장
+            {saving ? '저장 중…' : '기록 저장'}
           </button>
-          <p className="modal-footnote">공유 버튼은 기기에서 지원하는 앱 목록을 열어요.</p>
+          <p className="modal-footnote">
+            {health?.databaseEnabled || databaseMode.current
+              ? 'DB에 이름, 시술금액과 마감 문구를 저장합니다.'
+              : 'DB 설정 전에는 이 브라우저에 저장합니다.'}
+          </p>
         </Modal>
       )}
       {viewing && (
@@ -1266,14 +1466,8 @@ export default function App() {
           {reportActions(viewing.text, viewing.date)}
           <button
             className="text-button danger record-delete"
-            onClick={() => {
-              setStore((value) => ({
-                ...value,
-                history: value.history.filter((report) => report.id !== viewing.id),
-              }));
-              setViewing(null);
-              notify('마감 기록을 삭제했어요.');
-            }}
+            disabled={deleting}
+            onClick={() => void deleteViewedRecord()}
           >
             <Trash2 size={15} />이 기록 삭제
           </button>
@@ -1304,8 +1498,8 @@ export default function App() {
       {modal === 'clear-history' && (
         <Modal title="마감 기록을 모두 삭제할까요?" onClose={() => setModal(null)}>
           <p className="modal-description">
-            저장한 {history.length}개의 기록이 이 브라우저에서 삭제되며 복구할 수 없어요. 필요한
-            문구는 먼저 다운로드해 주세요.
+            저장한 {store.history.length}개의 기록이 이 브라우저에서 삭제되며 복구할 수 없어요.
+            필요한 문구는 먼저 다운로드해 주세요.
           </p>
           <div className="dialog-actions">
             <button className="button secondary" onClick={() => setModal(null)}>
@@ -1354,7 +1548,8 @@ export default function App() {
             </div>
           </div>
           <div className="notice">
-            기록은 현재 브라우저에만 저장돼요. 다른 기기에서 보려면 텍스트 파일을 다운로드해 주세요.
+            DB 연결 후 저장한 기록은 같은 서버와 접속 키로 다른 기기에서도 볼 수 있어요. 연결 전
+            기록은 이 브라우저에 보관돼요.
           </div>
         </Modal>
       )}

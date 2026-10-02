@@ -20,7 +20,7 @@ public final class ReceiptModels {
     public record ReportRequest(
         @NotNull LocalDate date,
         @NotBlank @Size(max = 60) String salonName,
-        @NotEmpty @Size(max = 200) List<@Valid Entry> entries,
+        @NotEmpty @Size(max = 200) List<@NotNull @Valid Entry> entries,
         boolean includeService,
         boolean compact
     ) {}
