@@ -19,7 +19,8 @@ public class ApiExceptionHandler {
     public ResponseEntity<?> size() { return error(413, "사진은 10MB 이하로 올려 주세요."); }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
-        MissingServletRequestPartException.class, MissingServletRequestParameterException.class, MultipartException.class})
+        MissingServletRequestPartException.class, MissingServletRequestParameterException.class, MultipartException.class,
+        org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
     public ResponseEntity<?> invalid() { return error(400, "이름, 금액, 날짜와 사진을 확인해 주세요."); }
 
     @ExceptionHandler(Exception.class)

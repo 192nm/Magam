@@ -32,7 +32,14 @@ public class ApiProtectionFilter extends OncePerRequestFilter {
         response.setHeader("X-Frame-Options", "DENY");
         if (!request.getRequestURI().startsWith("/api/")) { chain.doFilter(request, response); return; }
         response.setHeader("Cache-Control", "no-store");
-        if (!"POST".equals(request.getMethod())) { chain.doFilter(request, response); return; }
+        boolean records = request.getRequestURI().equals("/api/closing-records") || request.getRequestURI().startsWith("/api/closing-records/");
+        if (records) {
+            String supplied = request.getHeader("X-Access-Key");
+            if (accessKey.isBlank() || supplied == null || !MessageDigest.isEqual(accessKey.getBytes(StandardCharsets.UTF_8), supplied.getBytes(StandardCharsets.UTF_8))) {
+                reject(response, 401, "설정에서 올바른 서비스 접속 키를 입력해 주세요."); return;
+            }
+        }
+        if ("GET".equals(request.getMethod()) || "HEAD".equals(request.getMethod()) || "OPTIONS".equals(request.getMethod())) { chain.doFilter(request, response); return; }
         if (!"1".equals(request.getHeader("X-Magam-Client"))) {
             reject(response, 403, "허용되지 않은 요청입니다."); return;
         }

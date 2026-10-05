@@ -15,10 +15,13 @@ public class ApiController {
     private final ReceiptImageValidator validator;
     private final ReportService reports;
     private final boolean accessKeyRequired;
+    private final org.springframework.beans.factory.ObjectProvider<ClosingRecordRepository> database;
     private final Semaphore recognitionSlots = new Semaphore(2);
 
     public ApiController(ReceiptRecognitionService recognition, ReceiptImageValidator validator, ReportService reports,
-                         @Value("${magam.access-key}") String accessKey) {
+                         @Value("${magam.access-key}") String accessKey,
+                         org.springframework.beans.factory.ObjectProvider<ClosingRecordRepository> database) {
+        this.database = database;
         this.recognition = recognition;
         this.validator = validator;
         this.reports = reports;
@@ -27,7 +30,9 @@ public class ApiController {
 
     @GetMapping("/health")
     public Map<String, Object> health() {
-        return Map.of("status", "ok", "recognitionAvailable", recognition.isConfigured(), "accessKeyRequired", accessKeyRequired);
+        var repository = database.getIfAvailable();
+        return Map.of("status", "ok", "recognitionAvailable", recognition.isConfigured(), "accessKeyRequired", accessKeyRequired,
+                "databaseEnabled", repository != null, "databaseAvailable", repository != null && repository.available());
     }
 
     @PostMapping(value = "/receipts/extract", consumes = "multipart/form-data")
