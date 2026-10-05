@@ -721,7 +721,7 @@ export default function App() {
                               <input
                                 className="service-input"
                                 aria-label={`${index + 1}번 시술 내용`}
-                                maxLength={120}
+                                maxLength={500}
                                 placeholder="시술 내용"
                                 value={entry.service}
                                 onChange={(event) =>

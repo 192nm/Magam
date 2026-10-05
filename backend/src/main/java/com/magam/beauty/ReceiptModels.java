@@ -10,7 +10,7 @@ public final class ReceiptModels {
 
     public record Entry(
         @NotBlank @Size(max = 80) String name,
-        @NotNull @Size(max = 120) String service,
+        @NotNull @Size(max = 500) String service,
         @NotNull @Min(0) @Max(100000000) Long amount,
         boolean needsReview
     ) {}

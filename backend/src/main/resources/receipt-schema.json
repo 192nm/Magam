@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["entries", "warnings"],
+  "required": ["entries", "receiptRowCount", "receiptTotal", "warnings"],
   "properties": {
     "entries": {
       "type": "array",
@@ -18,6 +18,8 @@
         }
       }
     },
+    "receiptRowCount": { "type": ["integer", "null"] },
+    "receiptTotal": { "type": ["integer", "null"] },
     "warnings": { "type": "array", "items": { "type": "string" } }
   }
 }

@@ -25,7 +25,7 @@ export const dateLabel = (date: string, full = false) =>
 export const validEntry = (entry: Entry) =>
   entry.name.trim().length > 0 &&
   entry.name.length <= 80 &&
-  entry.service.length <= 120 &&
+  entry.service.length <= 500 &&
   entry.amount !== null &&
   Number.isSafeInteger(entry.amount) &&
   entry.amount >= 0 &&
